@@ -112,6 +112,10 @@ class RTCSession extends EventManager implements Owner {
   Map<String, dynamic>? _rtcOfferConstraints;
   Map<String, dynamic>? _rtcAnswerConstraints;
 
+  // set in connect(), answer() and negotiate() so that during an iceRestart we
+  // can use the same constraints in the offer
+  Map<String, dynamic>? _mediaContraints;
+
   // Local MediaStream.
   MediaStream? _localMediaStream;
   bool _localMediaStreamLocallyGenerated = false;
@@ -244,6 +248,7 @@ class RTCSession extends EventManager implements Owner {
     List<dynamic> extraHeaders = utils.cloneArray(options['extraHeaders']);
     Map<String, dynamic> mediaConstraints = options['mediaConstraints'] ??
         <String, dynamic>{'audio': true, 'video': true};
+    _mediaContraints = mediaConstraints;
     MediaStream? mediaStream = options['mediaStream'];
     Map<String, dynamic> pcConfig =
         options['pcConfig'] ?? <String, dynamic>{'iceServers': <dynamic>[]};
@@ -461,6 +466,7 @@ class RTCSession extends EventManager implements Owner {
     List<dynamic> extraHeaders = utils.cloneArray(options['extraHeaders']);
     Map<String, dynamic> mediaConstraints =
         options['mediaConstraints'] ?? <String, dynamic>{};
+    _mediaContraints = mediaConstraints;
     MediaStream? mediaStream = options['mediaStream'] ?? null;
     Map<String, dynamic> pcConfig =
         options['pcConfig'] ?? <String, dynamic>{'iceServers': <dynamic>[]};
@@ -621,7 +627,7 @@ class RTCSession extends EventManager implements Owner {
     if (_state == RtcSessionState.terminated) {
       throw Exceptions.InvalidStateError('terminated');
     }
-
+logger.d('we have a stream ${stream != null} and it was created locally $_localMediaStreamLocallyGenerated');
     // Attach MediaStream to RTCPeerconnection.
     _localMediaStream = stream;
 
@@ -1159,6 +1165,7 @@ class RTCSession extends EventManager implements Owner {
 
     Map<String, dynamic> mediaConstraints =
         options['mediaConstraints'] ?? <String, dynamic>{};
+    _mediaContraints = mediaConstraints;
 
     dynamic sdpSemantics =
         options['pcConfig']?['sdpSemantics'] ?? 'unified-plan';
@@ -1370,7 +1377,13 @@ class RTCSession extends EventManager implements Owner {
                     status_code: request.status_code,
                     reason_phrase: request.reason_phrase));
           } else {
-            request.reply(403, 'Wrong Status');
+            // if (_status == C.STATUS_TERMINATED) {
+            if (_state == RtcSessionState.terminated) {
+              logger.w('The session is in a terminated state and don\'t expect a BYE, so reply ok and ignore.');
+              request.reply(200);
+            } else {
+              request.reply(403, 'Wrong Status');
+            }
           }
           break;
         case SipMethod.INVITE:
@@ -1617,6 +1630,7 @@ class RTCSession extends EventManager implements Owner {
     }, Timers.TIMER_H);
   }
 
+  void iceRestart() => _iceRestart();
   void _iceRestart() async {
     Map<String, dynamic> offerConstraints = _rtcOfferConstraints ??
         <String, dynamic>{
@@ -1624,11 +1638,24 @@ class RTCSession extends EventManager implements Owner {
           'optional': <dynamic>[],
         };
     offerConstraints['mandatory']['IceRestart'] = true;
+
+    // going to create a new RTC connection so things are fresh as there seems to be
+    // a bug in WebRTC and we don't get the sound coming back
+    if (_lastUsedPcConfig != null && _lastUsedRtcConstraints != null) {
+      await _connection?.close();
+      await _createRTCConnection(_lastUsedPcConfig!, _lastUsedRtcConstraints!);
+    }
+    offerConstraints['mediaConstraints'] = _mediaContraints;
+
     renegotiate(options: offerConstraints);
   }
 
+  Map<String, dynamic>? _lastUsedPcConfig;
+  Map<String, dynamic>? _lastUsedRtcConstraints;
   Future<void> _createRTCConnection(Map<String, dynamic> pcConfig,
       Map<String, dynamic> rtcConstraints) async {
+    _lastUsedPcConfig = pcConfig;
+    _lastUsedRtcConstraints = rtcConstraints;
     _connection = await createPeerConnection(pcConfig, rtcConstraints);
     _connection!.onIceConnectionState = (RTCIceConnectionState state) {
       // TODO(cloudwebrtc): Do more with different states.
@@ -1639,7 +1666,10 @@ class RTCSession extends EventManager implements Owner {
           'reason_phrase': DartSIP_C.CausesType.RTP_TIMEOUT
         });
       } else if (state ==
-          RTCIceConnectionState.RTCIceConnectionStateDisconnected) {
+          RTCIceConnectionState.RTCIceConnectionStateDisconnected &&
+          _iceGatheringState != RTCIceGatheringState.RTCIceGatheringStateNew) {
+            // checking ice gathering state as we don't want to do an iceRestart if 
+            // we are already doing one as this will just cause a loop
         if (_state == RtcSessionState.terminated) return;
         _iceRestart();
       }
@@ -1699,11 +1729,23 @@ class RTCSession extends EventManager implements Owner {
           'createLocalDescription() | invalid type "$type"'));
     }
 
+    // removing the event handlers as they can not cross the native boundary
+    Map<String, dynamic> cleanContraints = Map<String, dynamic>.from(constraints);
+    dynamic removedEventHandlers = cleanContraints.remove('eventHandlers');
+    logger.d('removed event handlers: ${removedEventHandlers != null} from _createLocalDescription');
+
+    bool? iceRequestRequired = cleanContraints['mandatory']?['IceRestart'];
+    if (iceRequestRequired == true) {
+      _iceGatheringState = RTCIceGatheringState.RTCIceGatheringStateNew;
+      await _connection!.restartIce();
+    }
+
     _rtcReady = false;
     late RTCSessionDescription desc;
     if (type == SdpType.offer) {
       try {
-        desc = await _connection!.createOffer(constraints);
+        // desc = await _connection!.createOffer(constraints);
+        desc = await _connection!.createOffer(cleanContraints);
       } catch (error) {
         logger.e(
             'emit "peerconnection:createofferfailed" [error:${error.toString()}]');
@@ -1712,7 +1754,8 @@ class RTCSession extends EventManager implements Owner {
       }
     } else {
       try {
-        desc = await _connection!.createAnswer(constraints);
+        // desc = await _connection!.createAnswer(constraints);
+        desc = await _connection!.createAnswer(cleanContraints);
       } catch (error) {
         logger.e(
             'emit "peerconnection:createanswerfailed" [error:${error.toString()}]');

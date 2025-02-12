@@ -45,6 +45,10 @@ class SIPUAHelper extends EventManager {
   RegistrationState _registerState =
       RegistrationState(state: RegistrationStateEnum.NONE);
 
+  UA? get ua {
+    return _ua;
+  }
+
   /// Sets the logging level for the default logger. Has no effect if custom logger is supplied.
   set loggingLevel(Level loggingLevel) => Log.loggingLevel = loggingLevel;
 
@@ -743,6 +747,9 @@ class RegistrationState {
   RegistrationState({this.state, this.cause});
   RegistrationStateEnum? state;
   ErrorCause? cause;
+
+  /// contains the Feature-Caps header where supplied or push information
+  String? rawFeatureCaps;
 }
 
 enum TransportStateEnum {

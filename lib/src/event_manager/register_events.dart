@@ -8,6 +8,9 @@ class EventRegistrationExpiring extends EventType {
 class EventRegistered extends EventType {
   EventRegistered({this.cause});
   ErrorCause? cause;
+
+  /// contains the Feature-Caps header where supplied or push information
+  String? rawFeatureCaps;
 }
 
 class EventRegistrationFailed extends EventType {

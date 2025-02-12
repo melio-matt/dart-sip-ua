@@ -1,0 +1,36 @@
+registrator.dart
+Made a change that is for mobile devices to support when using push 
+notifcations that means that despite sip_ua knowing it is currently
+registered it will do another registration as otherwise the invite
+for the incoming call will not be recieved
+
+rtc_session.dart
+- added in a cache of _mediaContraints when we connect, answer or regegoiate
+so that if an iceRestart is done then it is possible to use the same constraints
+in the new offer that will result from the ice restart
+- add some code that if an end attempt was made and the call had already ended
+didn't error just accepted as result is the same
+- exposed the iceRestart method to be called when we know the network has changed
+- in iceRestart we create a new RTCPeerConnection
+- _createRTCConnection checks ice status to prevent loops
+- _createLocalDescription, removing event handlers as they cannot cross the native
+boundary and also check to see if ice restart is required
+- _sendReinvite not altered in this version as is very different from previous version
+- _sendUpdate also not altered but has changed a lot
+
+
+sip_ua_helper.dart
+- expose ua object with get
+- store the Feature-Caps in the RegistrationState object
+
+
+ua.dart
+- added processFeatureCaps method
+
+
+sip_ua.dart
+- add export of exceptions.dart
+
+
+register_events.dart
+- store the Feature-Caps in the EventRegistered object 

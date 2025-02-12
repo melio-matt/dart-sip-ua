@@ -553,6 +553,23 @@ class UA extends EventManager {
     _sessions.remove(session.id);
   }
 
+  /// extracts the feature caps header from the headers during registration
+  void processFeatureCaps(dynamic response, {required EventRegistered eventRegistered}) {
+    if (response.status_code == 200) {
+      dynamic fc = (response as IncomingResponse).headers?['Feature-Caps'];
+      if (fc != null && fc is List) {
+        fc = fc.first;
+        if (fc != null && fc is Map) {
+          eventRegistered.rawFeatureCaps = fc['raw'];
+        } else if (fc != null && fc is String) {
+          eventRegistered.rawFeatureCaps = fc;
+        }
+      } else if (fc != null && fc is Map) {
+        eventRegistered.rawFeatureCaps = fc['raw'];
+      }
+    }
+  }
+
   /**
    * Registered
    */
