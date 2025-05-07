@@ -50,7 +50,43 @@ class SIPUAHelper extends EventManager {
   }
 
   /// Sets the logging level for the default logger. Has no effect if custom logger is supplied.
-  set loggingLevel(Level loggingLevel) => Log.loggingLevel = loggingLevel;
+  // set loggingLevel(Level loggingLevel) => Log.loggingLevel = loggingLevel;
+
+  /// sets the logging level and as long as the any custom logger is supplied that is an extension
+  /// of the main logger then this will control the level
+  static void setLoggingLevel(String loggingLevel) {
+    switch (loggingLevel) {
+      case 'all':
+        Logger.level = Level.all;
+        break;
+      case 'debug':
+        Logger.level = Level.debug;
+        break;
+      case 'error':
+        Logger.level = Level.error;
+        break;
+      case 'fatal':
+        Logger.level = Level.fatal;
+        break;
+      case 'info':
+        Logger.level = Level.info;
+        break;
+      case 'off':
+        Logger.level = Level.off;
+        break;
+      case 'trace':
+        Logger.level = Level.trace;
+        break;
+      case 'warning':
+        Logger.level = Level.warning;
+        break;
+    }
+  }
+
+  /// Will recreate the logger and have it log to a file at the supplied path.
+  static void createFileOutputLogger(String logPath) {
+    logger = Log(logPath: logPath, useProductionFilter: true, );
+  }
 
   bool get registered {
     if (_ua != null) {
@@ -227,6 +263,7 @@ class SIPUAHelper extends EventManager {
         logger.d('registered => ${event.cause}');
         _registerState = RegistrationState(
             state: RegistrationStateEnum.REGISTERED, cause: event.cause);
+        _registerState.rawFeatureCaps = event.rawFeatureCaps;
         _notifyRegistrationStateListeners(_registerState);
       });
 
@@ -434,8 +471,13 @@ class SIPUAHelper extends EventManager {
     return _ua!.sendOptions(target, body, params);
   }
 
-  void subscribe(String target, String event, String contentType) {
-    Subscriber s = _ua!.subscribe(target, event, contentType);
+  void subscribe(String target, String event, String contentType, 
+      {String? accept, int expires = 900, String? allowEvents, 
+      Map<String, dynamic> requestParams = const <String, dynamic>{},
+      List<String> extraHeaders = const <String>[]}) {
+    
+    Subscriber s = _ua!.subscribe(target, event, accept ?? contentType, 
+      expires, contentType, allowEvents, requestParams, extraHeaders);
 
     s.on(EventNotify(), (EventNotify event) {
       _notifyNotifyListeners(event);

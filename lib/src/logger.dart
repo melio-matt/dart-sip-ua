@@ -8,7 +8,10 @@ import 'stack_trace_nj.dart';
 Logger logger = Log();
 
 class Log extends Logger {
-  Log() : super(printer: MyLogPrinter('.')) {
+  Log({String? logPath, bool useProductionFilter = false}) : super(printer: MyLogPrinter(loggingToFile: logPath != null), 
+                output: (logPath == null) ? null : AdvancedFileOutput(path: logPath, maxRotatedFilesCount: 5),
+                filter: useProductionFilter ? ProductionFilter() : DevelopmentFilter()
+                                          ) {
     StackTraceNJ frames = StackTraceNJ();
 
     if (frames.frames != null) {
@@ -18,15 +21,16 @@ class Log extends Logger {
         break;
       }
     }
+    print('_localPath: $_localPath');
   }
 
   static late String _localPath;
-  static Level _loggingLevel = Level.debug;
-  static set loggingLevel(Level loggingLevel) => _loggingLevel = loggingLevel;
+  // static Level _loggingLevel = Level.debug;
+  // static set loggingLevel(Level loggingLevel) => _loggingLevel = loggingLevel;
 }
 
 class MyLogPrinter extends LogPrinter {
-  MyLogPrinter(this.currentWorkingDirectory);
+  MyLogPrinter({this.loggingToFile = false});
 
   static final Map<Level, AnsiColor> levelColors = <Level, AnsiColor>{
     Level.trace: AnsiColor.fg(AnsiColor.grey(0.5)),
@@ -38,14 +42,14 @@ class MyLogPrinter extends LogPrinter {
 
   bool colors = true;
 
-  String currentWorkingDirectory;
+  bool loggingToFile = false;
 
   @override
   List<String> log(LogEvent event) {
-    if (Log._loggingLevel.index > event.level.index) {
-      // don't log events where the log level is set higher
-      return <String>[];
-    }
+    // if (Log._loggingLevel.index > event.level.index) {
+    //   // don't log events where the log level is set higher
+    //   return <String>[];
+    // }
     DateFormat formatter = DateFormat('yyyy-MM-dd HH:mm:ss.');
     DateTime now = DateTime.now();
     String formattedDate = formatter.format(now) + now.millisecond.toString();
@@ -66,22 +70,33 @@ class MyLogPrinter extends LogPrinter {
       }
     }
 
-    print(color(
-        '[$formattedDate] ${event.level} ${StackTraceNJ(skipFrames: depth).formatStackTrace(methodCount: 1)} ::: ${event.message}'));
+    List<String> logBits = <String>[];
+
+    String s = '[$formattedDate] ${event.level} ${StackTraceNJ(skipFrames: depth).formatStackTrace(methodCount: 1)} ::: ${event.message}';
+    logBits.add(s);
+    print(color(s));
+    // print(color(
+    //     '[$formattedDate] ${event.level} ${StackTraceNJ(skipFrames: depth).formatStackTrace(methodCount: 1)} ::: ${event.message}'));
     if (event.error != null) {
-      print('${event.error}');
+      s = '${event.error}';
+      logBits.add(s);
+      print(s);
+      // print('${event.error}');
     }
 
     if (event.stackTrace != null) {
       if (event.stackTrace.runtimeType == StackTraceNJ) {
         StackTraceNJ st = event.stackTrace as StackTraceNJ;
+        logBits.add(st.toString());
         print(color('$st'));
       } else {
+        logBits.add(event.stackTrace.toString());
         print(color('${event.stackTrace}'));
       }
     }
 
-    return <String>[];
+    return (loggingToFile == true) ? logBits : <String>[];
+    // return <String>[];
   }
 
   AnsiColor _getLevelColor(Level level) {

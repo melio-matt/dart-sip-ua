@@ -239,16 +239,21 @@ class Registrator {
                 contact.getParam('pub-gruu').replaceAll('"', '');
           }
 
-          if (!_registered) {
-            _registered = true;
-            _ua.registered(response: event.response);
-          } else if (Platform.isIOS || Platform.isAndroid) {
-            // we need to know each time we are registered when using mobiles as before an
-            // invite can be sent a push notification is sent that causes a register. In
-            // cases where the app is in the foreground then we still need to do a reregister
-            // so the invite gets sent even though we are actually registered.
-            _ua.registered(response: event.response);
-          }
+          // report the registration everytime and not just when it changes from unregistered
+          // to registered
+          _registered = true;
+          _ua.registered(response: event.response);
+
+          // if (!_registered) {
+          //   _registered = true;
+          //   _ua.registered(response: event.response);
+          // } else if (Platform.isIOS || Platform.isAndroid) {
+          //   // we need to know each time we are registered when using mobiles as before an
+          //   // invite can be sent a push notification is sent that causes a register. In
+          //   // cases where the app is in the foreground then we still need to do a reregister
+          //   // so the invite gets sent even though we are actually registered.
+          //   _ua.registered(response: event.response);
+          // }
         } else
         // Interval too brief RFC3261 10.2.8.
         if (status_code.contains(RegExp(r'^423$'))) {

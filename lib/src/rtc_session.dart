@@ -1,7 +1,9 @@
 // Dart imports:
 import 'dart:async';
+import 'dart:typed_data';
 
 // Package imports:
+// import 'package:flutter/services.dart' show rootBundle; if loading assets
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:sdp_transform/sdp_transform.dart' as sdp_transform;
 
@@ -26,6 +28,7 @@ import 'timers.dart';
 import 'transactions/transaction_base.dart';
 import 'ua.dart';
 import 'utils.dart' as utils;
+
 
 enum RtcSessionState {
   none, // STATUS_NULL
@@ -3287,14 +3290,73 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }
   }
 
-  void _toggleMuteAudio(bool mute) {
+
+  // late AudioPlayer audioPlayer;
+  // Future<MediaStreamTrack> createAudioTrackFromWav() async {
+  //   // Load the WAV file from assets (make sure it's included in pubspec.yaml)
+  //   logger.i('going to create audio track');
+  //   ByteData data = await rootBundle.load('packages/sip_ua/assets/duck-quack.wav');
+  //   Uint8List audioBytes = data.buffer.asUint8List();
+
+  //   logger.i('loaded sound file that is ${audioBytes.length} long');
+
+  //   // Create an audio player instance
+  //   audioPlayer = AudioPlayer();
+  //   await audioPlayer.setSourceBytes(audioBytes, mimeType: 'audio/wav');
+  //   logger.i('the audio source has been set');
+  //   await audioPlayer.setReleaseMode(ReleaseMode.loop); // Loop playback
+
+  //   // Start playing the WAV file
+  //   await audioPlayer.resume();
+
+  //   // Create an audio track (dummy track, actual audio will play separately)
+  //   navigator.mediaDevices.enumerateDevices().then((List<MediaDeviceInfo> devices) {
+  //     logger.i('enumerateDevices');
+  //     for (MediaDeviceInfo mdi in devices) {
+  //       logger.i('media device ${mdi.deviceId}, ${mdi.kind} ${mdi.label} ${mdi.groupId}');
+  //     }
+  //   });
+  //   MediaStreamTrack track = await navigator.mediaDevices.getUserMedia(<String, dynamic>{
+  //     'audio': true,
+  //   }).then((MediaStream stream) { 
+  //     logger.i('got ${stream.getAudioTracks().length} audio tracks');
+  //     return stream.getAudioTracks().first; });
+  //   return track;
+  // }
+
+  // late wd.AudioContext _silentAudioContext;
+  // late MediaStreamTrack _silentTrack;
+  void _toggleMuteAudio(bool mute) async {
     if (_localMediaStream != null) {
       if (_localMediaStream!.getAudioTracks().isEmpty) {
-        logger.w('Went to mute video but local stream has no video tracks');
+        logger.w('Went to mute audio but local stream has no audio tracks');
       }
+      // if (mute == true) {
+        // _silentAudioContect = wd.AudioContext();
+      //   wd.OscillatorNode oscillatorNode = _silentAudioContect.createOscillator();
+      //   oscillatorNode.frequency.value = 0;
+      //   wd.GainNode gainNode = _silentAudioContect.createGain();
+      //   gainNode.gain.value = 0;
+      //   oscillatorNode.connect(gainNode);
+      //   wd.MediaStreamAudioDestinationNode destination = _silentAudioContect.createMediaStreamDestination();
+      //   gainNode.connect(destination);
+      //   oscillatorNode.start();
+      //   MediaStreamTrack silentTrack = destination.stream.getAudioTracks()[0] as MediaStreamTrack;
+      //   _localMediaStream!.addTrack(silentTrack);
+      // }
+      // bool needToAddTrack = false; 
+      // if (mute == true) {
+      //   _silenceTrack ??= await createAudioTrackFromWav();
+      //   audioPlayer.resume();
+      // }
+
       for (MediaStreamTrack track in _localMediaStream!.getAudioTracks()) {
-        track.enabled = !mute;
+        print('track label ${track.label} - ${track.id}');
+        // if (track != _silentTrack) {
+          track.enabled = !mute;
+        // }
       }
+      
     } else {
       logger.w('Went to mute audio but local stream is null');
     }

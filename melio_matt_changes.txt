@@ -1,8 +1,11 @@
 registrator.dart
-Made a change that is for mobile devices to support when using push 
+- Made a change that is for mobile devices to support when using push 
 notifcations that means that despite sip_ua knowing it is currently
 registered it will do another registration as otherwise the invite
 for the incoming call will not be recieved
+- changed to emit an event everytime a register happens and not just on
+registration changes. Previously only the point above this was done, now
+all platforms do it
 
 rtc_session.dart
 - added in a cache of _mediaContraints when we connect, answer or regegoiate
@@ -21,11 +24,16 @@ boundary and also check to see if ice restart is required
 
 sip_ua_helper.dart
 - expose ua object with get
-- store the Feature-Caps in the RegistrationState object
+- store the Feature-Caps in the RegistrationState object and in the registered callback
+the raw Feature-Caps is transfered fromn the event object to the state object
+- exposed the underlying options that exist in the ua version to allow greate configuration
 
 
 ua.dart
 - added processFeatureCaps method
+- processFeatureCaps called in registered method
+- recieveRequest when handling nofifies correctly sends back a 481 message rather than
+throwing an exception
 
 
 sip_ua.dart
@@ -34,3 +42,14 @@ sip_ua.dart
 
 register_events.dart
 - store the Feature-Caps in the EventRegistered object 
+
+subscriber.dart
+- _sendSubsequentSubscribe was sending the subscribe message twice and also
+alter the cseq so it wasn't always using random values
+- altered the code that checks for an expires time in the response and if not
+present then uses a default value. 0 is valid as this will be present when
+the app wants to unsubscribe.
+
+sip_message.dart
+- handled the Subscription-State parsing in the header as it can have additional information,
+but for here this is stripped

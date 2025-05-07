@@ -38,7 +38,7 @@ class Subscriber extends EventManager implements Owner {
     this.ua,
     this._target,
     String eventName,
-    String accept, [
+    String accept,[
     int expires = 900,
     String? contentType,
     String? allowEvents,
@@ -142,6 +142,8 @@ class Subscriber extends EventManager implements Owner {
   @override
   int get TerminatedCode => SubscriberState.terminated.index;
 
+  String get target => _target;
+
   void onRequestTimeout() {
     _dialogTerminated(SubscriberTerminationCode.subscribeResponseTimeout);
   }
@@ -217,7 +219,6 @@ class Subscriber extends EventManager implements Owner {
         if (_expires_timestamp!.difference(expiresTimestamp) >
             Duration(milliseconds: maxTimeDeviation)) {
           logger.d('update sending re-SUBSCRIBE time');
-
           _scheduleSubscribe(expires);
         }
       }
@@ -344,6 +345,7 @@ class Subscriber extends EventManager implements Owner {
     }
 
     if (response.status_code >= 200 && response.status_code < 300) {
+logger.d("got subscribe response for $_target");
       // Create dialog
       if (_dialog == null) {
         _id = response.call_id!;
@@ -377,9 +379,10 @@ class Subscriber extends EventManager implements Owner {
       // Check expires value.
       String? expires_value = response.getHeader('Expires');
 
-      if (expires_value != null &&
-          expires_value == '' &&
-          expires_value == '0') {
+      // if (expires_value != null &&
+      //     expires_value == '' &&
+      //     expires_value == '0') {
+      if (expires_value == null || expires_value.trim() == '') {
         logger.w('response without Expires header');
 
         // RFC 6665 3.1.1 subscribe OK response must contain Expires header.
@@ -390,6 +393,7 @@ class Subscriber extends EventManager implements Owner {
       int? expires = int.tryParse(expires_value!, radix: 10);
 
       if (expires != null && expires > 0) {
+        logger.d('_scheduleSubscribe called by _receiveSubscribeResponse');
         _scheduleSubscribe(expires);
       }
     } else if (response.status_code == 401 || response.status_code == 407) {
@@ -501,21 +505,26 @@ class Subscriber extends EventManager implements Owner {
       onTransportError();
     });
 
+    // update the cseq here otherwise a randon one will be used and some
+    // servers what to see and every increasing number
+    _dialog!.local_seqnum = _dialog!.local_seqnum! + 1;
+    _params['cseq'] = _dialog!.local_seqnum;
+
     OutgoingRequest request = OutgoingRequest(SipMethod.SUBSCRIBE,
         ua.normalizeTarget(_target)!, ua, _params, headers, body);
 
     RequestSender request_sender = RequestSender(ua, request, manager);
 
     request_sender.send();
-
-    _dialog?.sendRequest(SipMethod.SUBSCRIBE, <String, dynamic>{
-      'body': body,
-      'extraHeaders': headers,
-      'eventHandlers': manager,
-    });
   }
 
   SubscriberState _parseStateString(String? strState) {
+    if (strState != null && strState.contains(';')) {
+      // this is in the case where there is more of a list subscriber state.
+      // e.g. for terminated it may supply reason=timeout
+      strState = strState.split(';')[0];
+      logger.d("for the subscriber state $strState we had the additional data ${strState.split(',')[1]}");
+    }
     switch (strState) {
       case 'pending':
         return SubscriberState.pending;

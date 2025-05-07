@@ -455,6 +455,16 @@ class IncomingMessage {
       return header['parsed'];
     }
 
+    if (name == 'Subscription-State') {
+      // this is in the case where there is more of a list subscriber state.
+      // e.g. for terminated it may supply reason=timeout
+      // since the grammar parser is auto-generated we strip out the additional
+      // reason before it is processed
+      if ((value as String).contains(';')) {
+        value = value.split(';')[0];
+      }
+    }
+
     // Substitute '-' by '_' for grammar rule matching.
     dynamic parsed = Grammar.parse(value, name.replaceAll('-', '_'));
     if (parsed == -1) {

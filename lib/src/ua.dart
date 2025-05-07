@@ -478,6 +478,24 @@ class UA extends EventManager {
   }
 
   /**
+   * This will terminate all the subsriptions so they do not try and refresh.
+   */
+  void terminateAllSubscribers() {
+     _subscribers.forEach((String? key, _) {
+      if (_subscribers.containsKey(key)) {
+        logger.d('terminating subscription $key');
+        try {
+          Subscriber subscriber = _subscribers[key]!;
+          subscriber.terminate(null);
+        } catch (e, s) {
+          logger.e(e.toString(), error: e, stackTrace: s);
+        }
+      }
+    });
+    _subscribers.clear();
+  }
+
+  /**
    * Dialog
    */
   void newDialog(Dialog dialog) {
@@ -555,6 +573,7 @@ class UA extends EventManager {
 
   /// extracts the feature caps header from the headers during registration
   void processFeatureCaps(dynamic response, {required EventRegistered eventRegistered}) {
+    logger.d('processFeatureCaps called');
     if (response.status_code == 200) {
       dynamic fc = (response as IncomingResponse).headers?['Feature-Caps'];
       if (fc != null && fc is List) {
@@ -574,11 +593,11 @@ class UA extends EventManager {
    * Registered
    */
   void registered({required dynamic response}) {
-    emit(EventRegistered(
-        cause: ErrorCause(
-            cause: 'registered',
-            status_code: response.status_code,
-            reason_phrase: response.reason_phrase)));
+    EventRegistered ev = EventRegistered(
+        cause:
+            ErrorCause(cause: 'registered', status_code: response.status_code, reason_phrase: response.reason_phrase));
+    processFeatureCaps(response, eventRegistered: ev);
+    emit(ev);
   }
 
   /**
@@ -762,7 +781,7 @@ class UA extends EventManager {
           sub.receiveRequest(request);
         } else {
           logger.d('received NOTIFY request for a non existent subscription');
-          request.reply(481, 'Subscription does not exist');
+          request.reply(481);
         }
       }
 
@@ -786,6 +805,19 @@ class UA extends EventManager {
     Subscriber? sub = _subscribers[id];
 
     return sub;
+  }
+
+  /**
+   * Searches for subscribers by target
+   */
+  List<Subscriber> _findSubscriberByTarget(String target) {
+    List<Subscriber> foundSubs = <Subscriber>[];
+    for (Subscriber sub in _subscribers.values) {
+      if (sub.target == target) {
+        foundSubs.add(sub);
+      }
+    }
+    return foundSubs;
   }
 
   /**
