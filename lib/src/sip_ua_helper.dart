@@ -310,6 +310,20 @@ class SIPUAHelper extends EventManager {
         }
       });
 
+      /// Will emit an event when a notify message is reveived that provides information
+      /// on the status of a mailbox. The notify messages will often needing to be 
+      /// subscribed to are sent out of dialog and so revieved here and not in the subsriber
+      _ua!.on(EventSipEvent(), (EventSipEvent event) {
+        logger.d('sipEvent => $event : ${event.request?.event?.event}');
+        if (event.request?.event?.event == 'message-summary') {
+          EventNotify notifyEvent = EventNotify(isFinal: true,
+              request: event.request!,
+              body: event.request!.body,
+              contentType: 'message-summary');
+          _notifyNotifyListeners(notifyEvent);
+        }
+      });
+
       _ua!.start();
     } catch (e, s) {
       logger.e(e.toString(), error: e, stackTrace: s);
