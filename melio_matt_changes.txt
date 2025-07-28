@@ -18,9 +18,16 @@ didn't error just accepted as result is the same
 - _createRTCConnection checks ice status to prevent loops
 - _createLocalDescription, removing event handlers as they cannot cross the native
 boundary and also check to see if ice restart is required
-- _sendReinvite not altered in this version as is very different from previous version
+- _sendReinvite changed where the success flag is checked in the onSucceeded callback
+so it checks the value as it always returned as the success flag could never be null. The
+same alteration has been done to _sendUpdate
 - _sendUpdate also not altered but has changed a lot
-
+- Added a second attempt when doing a reinvite and a check to make sure that if the socket 
+isn’t currently connected then it will delay an attempt to allow it time to connect before 
+trying.
+- Session timers are now sensitive to sip_ua being informed that a reconnection attempt 
+is being made and will make a second attempt before killing the session.
+- The answer method now picks up an iceServer to use. 
 
 sip_ua_helper.dart
 - expose ua object with get
@@ -53,3 +60,10 @@ the app wants to unsubscribe.
 sip_message.dart
 - handled the Subscription-State parsing in the header as it can have additional information,
 but for here this is stripped
+
+grammar.dart
+- altered exception to pass through extra information so we can see where the
+error is coming from
+
+websocket_dart_impl.dart
+- catching errors and logging them rather than allowing them to bubble all the way to the top

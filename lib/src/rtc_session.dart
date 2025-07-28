@@ -65,6 +65,7 @@ class RFC4028Timers {
   bool running;
   bool refresher;
   Timer? timer;
+  int sessionAttempt = 0;
 }
 
 class RTCSession extends EventManager implements Owner {
@@ -471,8 +472,13 @@ class RTCSession extends EventManager implements Owner {
         options['mediaConstraints'] ?? <String, dynamic>{};
     _mediaContraints = mediaConstraints;
     MediaStream? mediaStream = options['mediaStream'] ?? null;
+    // Map<String, dynamic> pcConfig =
+    //     options['pcConfig'] ?? <String, dynamic>{'iceServers': <dynamic>[]};
     Map<String, dynamic> pcConfig =
-        options['pcConfig'] ?? <String, dynamic>{'iceServers': <dynamic>[]};
+        options['pcConfig'] ?? <String, dynamic>{'iceServers':  _ua.configuration.ice_servers,
+        'iceTransportPolicy': 'all'};
+    // pcConfig['iceTransportPolicy'] = 'all';
+        
     Map<String, dynamic> rtcConstraints =
         options['rtcConstraints'] ?? <String, dynamic>{};
     Map<String, dynamic> rtcAnswerConstraints =
@@ -638,10 +644,12 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       switch (sdpSemantics) {
         case 'unified-plan':
           stream.getTracks().forEach((MediaStreamTrack track) {
+            logger.d('adding track in answer');
             _connection!.addTrack(track, stream!);
           });
           break;
         case 'plan-b':
+          logger.d('adding stream in answer');
           _connection!.addStream(stream);
           break;
         default:
@@ -1162,6 +1170,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
 
     options = options ?? <String, dynamic>{};
     EventManager handlers = options['eventHandlers'] ?? EventManager();
+    bool? iceRequestRequired = options['mandatory']?['IceRestart'];
 
     Map<String, dynamic>? rtcOfferConstraints =
         options['rtcOfferConstraints'] ?? _rtcOfferConstraints;
@@ -1214,19 +1223,26 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
         'extraHeaders': options['extraHeaders']
       });
     } else {
+      Map<String, dynamic> mandatory = <String, dynamic>{};
+      logger.d('will add IceRestart in when calling _sendReinvite: $iceRequestRequired');
+      if (iceRequestRequired == true) {
+        mandatory['IceRestart'] = true;
+      }
       if (upgradeToVideo ?? false) {
         _sendVideoUpgradeReinvite(<String, dynamic>{
           'eventHandlers': handlers,
           'sdpSemantics': sdpSemantics,
           'rtcOfferConstraints': rtcOfferConstraints,
           'mediaConstraints': mediaConstraints,
-          'extraHeaders': options['extraHeaders']
+          'extraHeaders': options['extraHeaders'],
+          'mandatory': mandatory
         });
       } else {
         _sendReinvite(<String, dynamic>{
           'eventHandlers': handlers,
           'rtcOfferConstraints': rtcOfferConstraints,
-          'extraHeaders': options['extraHeaders']
+          'extraHeaders': options['extraHeaders'],
+          'mandatory': mandatory
         });
       }
     }
@@ -1633,23 +1649,72 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }, Timers.TIMER_H);
   }
 
+  bool _reconnecting = false;
+  void markAsReconnecting(bool reconnecting) {
+    _reconnecting = reconnecting;
+  }
+
   void iceRestart() => _iceRestart();
   void _iceRestart() async {
+    logger.d('_iceRestart called');
     Map<String, dynamic> offerConstraints = _rtcOfferConstraints ??
         <String, dynamic>{
           'mandatory': <String, dynamic>{},
           'optional': <dynamic>[],
         };
-    offerConstraints['mandatory']['IceRestart'] = true;
+    // offerConstraints['mandatory']['IceRestart'] = true;
 
     // going to create a new RTC connection so things are fresh as there seems to be
     // a bug in WebRTC and we don't get the sound coming back
     if (_lastUsedPcConfig != null && _lastUsedRtcConstraints != null) {
+
+      logger.d('about to close RTCPeerConnection');
       await _connection?.close();
+
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      logger.d('call to create new RTCPeerConnection');
       await _createRTCConnection(_lastUsedPcConfig!, _lastUsedRtcConstraints!);
+
+      // In future versions, unified-plan will be used by default
+      String? sdpSemantics = 'unified-plan';
+      if (_lastUsedPcConfig!['sdpSemantics'] != null) {
+        sdpSemantics = _lastUsedPcConfig!['sdpSemantics'];
+      }
+
+      // we now need to connect back up the media streams that where added to
+      // the origninal connection in either the
+      switch (sdpSemantics) {
+        case 'unified-plan':
+          MediaStream newMediaStream = await createLocalMediaStream('newMediaStreamInIceRestart');
+          for (MediaStreamTrack track in _localMediaStream!.getTracks()) {
+            logger.d('adding track in _iceRestart');
+            newMediaStream.addTrack(track);
+            _connection!.addTrack(track, newMediaStream);
+            // _connection!.addTrack(track, _localMediaStream!);
+          }
+          break;
+        case 'plan-b':
+            logger.d('adding stream in _iceRestart');
+            MediaStream newMediaStream = await createLocalMediaStream('newMediaStreamInIceRestart');
+            for (MediaStreamTrack track in _localMediaStream!.getTracks()) {
+              newMediaStream.addTrack(track);
+            }
+            _connection!.addStream(newMediaStream);
+            // _connection!.addStream(_localMediaStream!);
+          break;
+        default:
+          logger.e('Unkown sdp semantics $sdpSemantics');
+          throw Exceptions.NotReadyError('Unkown sdp semantics $sdpSemantics');
+      }
+    } else {
+      // if we are not recreating the RTCPeerConnection then we mark it
+      // for an IceRestart as the new connection will need to do ICE anyway
+      offerConstraints['mandatory']['IceRestart'] = true;
     }
     offerConstraints['mediaConstraints'] = _mediaContraints;
 
+    logger.d('call to do a renegotiate');
     renegotiate(options: offerConstraints);
   }
 
@@ -1658,10 +1723,17 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
   Future<void> _createRTCConnection(Map<String, dynamic> pcConfig,
       Map<String, dynamic> rtcConstraints) async {
     _lastUsedPcConfig = pcConfig;
+    logger.d('pcConfig:');
+    logger.d(pcConfig);
     _lastUsedRtcConstraints = rtcConstraints;
+    logger.d('rtcConstraints:');
+    logger.d(rtcConstraints);
+    // reset back to the initial value whenever we recreate the RTCPeerConnection
+    _iceGatheringState = null;
     _connection = await createPeerConnection(pcConfig, rtcConstraints);
     _connection!.onIceConnectionState = (RTCIceConnectionState state) {
       // TODO(cloudwebrtc): Do more with different states.
+      logger.d('rtcPeerConnection as seent he IceConnectionState change to: $state');
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         terminate(<String, dynamic>{
           'cause': DartSIP_C.CausesType.RTP_TIMEOUT,
@@ -1677,6 +1749,11 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
         _iceRestart();
       }
     };
+
+    _connection!.onSignalingState = (RTCSignalingState state) {
+      logger.d('Signaling state changed: $state');
+    };
+
 
     // In future versions, unified-plan will be used by default
     String? sdpSemantics = 'unified-plan';
@@ -1711,6 +1788,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
   Future<RTCSessionDescription> _createLocalDescription(
       SdpType type, Map<String, dynamic>? constraints) async {
     logger.d('createLocalDescription()');
+    logger.d(constraints);
     _iceGatheringState ??= RTCIceGatheringState.RTCIceGatheringStateNew;
     Completer<RTCSessionDescription> completer =
         Completer<RTCSessionDescription>();
@@ -1736,12 +1814,6 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     Map<String, dynamic> cleanContraints = Map<String, dynamic>.from(constraints);
     dynamic removedEventHandlers = cleanContraints.remove('eventHandlers');
     logger.d('removed event handlers: ${removedEventHandlers != null} from _createLocalDescription');
-
-    bool? iceRequestRequired = cleanContraints['mandatory']?['IceRestart'];
-    if (iceRequestRequired == true) {
-      _iceGatheringState = RTCIceGatheringState.RTCIceGatheringStateNew;
-      await _connection!.restartIce();
-    }
 
     _rtcReady = false;
     late RTCSessionDescription desc;
@@ -1776,6 +1848,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }
 
     Future<void> ready() async {
+      logger.d('the ice candidates are ready so ready() called');
       if (!finished && _state != RtcSessionState.terminated) {
         finished = true;
         _connection!.onIceCandidate = null;
@@ -1791,6 +1864,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }
 
     _connection!.onIceGatheringState = (RTCIceGatheringState state) {
+      logger.d('onIceGatheringState called with state $state in _createLocalDescription');
       _iceGatheringState = state;
       if (state == RTCIceGatheringState.RTCIceGatheringStateComplete) {
         ready();
@@ -1799,6 +1873,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
 
     bool hasCandidate = false;
     _connection!.onIceCandidate = (RTCIceCandidate candidate) {
+      logger.d('onIceCandidate called with a candidate ${candidate != null} in _createLocalDescription: ${candidate.candidate}');
       if (candidate != null) {
         emit(EventIceCandidate(candidate, ready));
         if (!hasCandidate) {
@@ -1810,13 +1885,34 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
            * initiating a call to answer the call waiting will be unacceptable.
            */
           if (ua.configuration.ice_gathering_timeout != 0) {
-            setTimeout(() => ready(), ua.configuration.ice_gathering_timeout);
+            // setTimeout(() => ready(), ua.configuration.ice_gathering_timeout);
+            setTimeout(() {
+              logger.d('ready for ice gathering called by timeout');
+              ready();
+            }, ua.configuration.ice_gathering_timeout);
           }
         }
+      } else {
+        logger.d('looks like all candidates gathered as got a null candidate');
       }
     };
 
+    // if we have been indicated to perform an ice restart then do so here once the
+    // listerners above have been setup
+    bool? iceRequestRequired = cleanContraints['mandatory']?['IceRestart'];
+    logger.d('iceRequestRequired: $iceRequestRequired');
+    logger.d(cleanContraints);
+    if (iceRequestRequired == true) {
+      logger.d('calling restartIce on the RTCPeerConnection when creating LocalDescption');
+      // _iceGatheringState = RTCIceGatheringState.RTCIceGatheringStateNew;
+      // await _connection!.restartIce();
+      _connection!.restartIce(); // no need to await as it works with the callbacks
+    }
+
     try {
+      logger.d('setting the local desciption onto the RTCPeerConnection');
+      logger.d('_iceGatherungState: $_iceGatheringState');
+      logger.d('will set sdp in local descrption \n ${desc.sdp}');
       await _connection!.setLocalDescription(desc);
     } catch (error) {
       _rtcReady = true;
@@ -2662,8 +2758,9 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
   /**
    * Send Re-INVITE
    */
-  void _sendReinvite([Map<String, dynamic>? options]) async {
+  void _sendReinvite([Map<String, dynamic>? options, bool secondAttempt = false]) async {
     logger.d('sendReinvite()');
+    logger.d(options);
 
     options = options ?? <String, dynamic>{};
 
@@ -2673,6 +2770,14 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     EventManager eventHandlers = options['eventHandlers'] ?? EventManager();
     Map<String, dynamic>? rtcOfferConstraints =
         options['rtcOfferConstraints'] ?? _rtcOfferConstraints;
+    bool? iceRequestRequired = options['mandatory']?['IceRestart'];
+    if (iceRequestRequired == true) {
+      rtcOfferConstraints ??= <String, dynamic> {};
+      Map<String, dynamic> mandatory = <String, dynamic>{'IceRestart': true};
+      rtcOfferConstraints['mandatory'] = mandatory;
+    }
+    logger.d('rtcOfferConstraints in _sendReinvite');
+    logger.d(rtcOfferConstraints);
 
     bool succeeded = false;
 
@@ -2697,7 +2802,8 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       sendRequest(SipMethod.ACK);
 
       // If it is a 2XX retransmission exit now.
-      if (succeeded != null) {
+      if (succeeded) {
+        logger.d('exiting at succeeded');
         return;
       }
 
@@ -2751,6 +2857,11 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
         onFailed(event.response);
       });
       handlers.on(EventOnTransportError(), (EventOnTransportError event) {
+        if (secondAttempt == false) {
+          logger.d('will do a second reinvite attempt');
+          _sendReinvite(options, true);
+          return;
+        }
         onTransportError(); // Do nothing because session ends.
       });
       handlers.on(EventOnRequestTimeout(), (EventOnRequestTimeout event) {
@@ -2759,12 +2870,25 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       handlers.on(EventOnDialogError(), (EventOnDialogError event) {
         onDialogError(); // Do nothing because session ends.
       });
-
-      sendRequest(SipMethod.INVITE, <String, dynamic>{
-        'extraHeaders': extraHeaders,
-        'body': sdp,
-        'eventHandlers': handlers
-      });
+      
+      if (_ua.isConnected()) {
+        sendRequest(SipMethod.INVITE, <String, dynamic>{
+          'extraHeaders': extraHeaders,
+          'body': sdp,
+          'eventHandlers': handlers
+        });
+      } else {
+        // if not connect and because we are in a call it is reasonable
+        // to assume that will automatically try and reconnect and then
+        // it may be possible to send the message, so we will just delay a bit
+        Future<void>.delayed(const Duration(milliseconds: 250), () {
+          sendRequest(SipMethod.INVITE, <String, dynamic>{
+          'extraHeaders': extraHeaders,
+          'body': sdp,
+          'eventHandlers': handlers
+        });
+        });
+      }
     } catch (e, s) {
       logger.e(e.toString(), error: e, stackTrace: s);
       onFailed();
@@ -2972,7 +3096,7 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       _handleSessionTimersInIncomingResponse(response);
 
       // If it is a 2XX retransmission exit now.
-      if (succeeded != null) {
+      if (succeeded) {
         return;
       }
 
@@ -3012,6 +3136,24 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }
 
     if (sdpOffer) {
+      bool callError() {
+        if (_sessionTimers.running && sdpOffer == true) {
+            // if a transport error fails and we are using session timers and no sdp
+            // was being sent then the update is purely for the purposes of keeping
+            // the session alive and checking it is still active. However we want
+            // to have another attempt before we end the session in case at the time
+            // the update was sent we are trying to switch networks
+            if (_sessionTimers.sessionAttempt == 0 && _reconnecting == true) {
+              _sessionTimers.sessionAttempt++;
+              _runSessionTimer();
+              return false;
+            } else {
+              _sessionTimers.sessionAttempt = 0;
+            }
+          }
+        return true;
+      }
+
       extraHeaders.add('Content-Type: application/sdp');
       try {
         RTCSessionDescription desc =
@@ -3031,12 +3173,21 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
           onFailed(event.response);
         });
         handlers.on(EventOnTransportError(), (EventOnTransportError event) {
+          if (callError() == false) {
+            return;
+          }
           onTransportError(); // Do nothing because session ends.
         });
         handlers.on(EventOnRequestTimeout(), (EventOnRequestTimeout event) {
+          if (callError() == false) {
+            return;
+          }
           onRequestTimeout(); // Do nothing because session ends.
         });
         handlers.on(EventOnDialogError(), (EventOnDialogError event) {
+          if (callError() == false) {
+            return;
+          }
           onDialogError(); // Do nothing because session ends.
         });
 

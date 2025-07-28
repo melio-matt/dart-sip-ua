@@ -52,8 +52,16 @@ class SIPUAWebSocketImpl {
       await Future<void>.delayed(Duration(milliseconds: messageDelay));
       return event;
     }).listen((dynamic event) async {
-      _socket!.add(event);
-      logger.d('send: \n\n$event');
+      try {
+        _socket!.add(event);
+        logger.d('send: \n\n$event');
+      }catch (e) {
+        // catch the error so it does not bubble up and due to the
+        // implenation of a stream it won't be reportable back to
+        // the sender, so we will wait for onDone callbacl on the
+        // WebSocket to be called
+        logger.e('Error send event on websocket', error: e);
+      }
     });
   }
 

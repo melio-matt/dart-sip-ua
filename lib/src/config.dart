@@ -65,6 +65,9 @@ class Settings {
   /// ICE Gathering Timeout (in millisecond).
   int ice_gathering_timeout = 500;
 
+  /// ICE servers
+  List<Map<String, String>> ice_servers = <Map<String, String>>[];
+
   bool terminateOnAudioMediaPortZero = false;
 
   /// Sip Message Delay (in millisecond) ( default 0 ).

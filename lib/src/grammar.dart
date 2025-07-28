@@ -17,7 +17,7 @@ class Grammar {
       List<String> strings = ParserErrorFormatter.format(parser.text, messages);
       print('input => $input, rule => $startRule');
       print(strings.join('\n'));
-      throw FormatException();
+      throw FormatException('Error in Grammar parsing', 'sip_ua', null);
     }
     return result;
   }

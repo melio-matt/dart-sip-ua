@@ -183,7 +183,7 @@ class SIPUAHelper extends EventManager {
       logger.w('UA instance already exist!, stopping UA and creating a one...');
       _ua!.stop();
     }
-
+    
     _uaSettings = uaSettings;
 
     // Reset settings
@@ -224,6 +224,9 @@ class SIPUAHelper extends EventManager {
     _settings.dtmf_mode = uaSettings.dtmfMode;
     _settings.session_timers = uaSettings.sessionTimers;
     _settings.ice_gathering_timeout = uaSettings.iceGatheringTimeout;
+    if (uaSettings.iceServers.isNotEmpty) {
+      _settings.ice_servers = uaSettings.iceServers;
+    }
     _settings.session_timers_refresh_method =
         uaSettings.sessionTimersRefreshMethod;
     _settings.instance_id = uaSettings.instanceId;
