@@ -288,7 +288,12 @@ class Registrator {
     request_sender.send();
   }
 
-  Future<bool> unregister(bool unregister_all) async {
+  /**
+    Use sendUnregister when you want sip_ua to shutdownn but not
+    actually send an unregister to the server. Used for mobile
+    clients when using push
+   */
+  Future<bool> unregister(bool unregister_all, {bool sendUnregister = true}) async {
     if (_registered == false) {
       logger.d('already unregistered');
 
@@ -301,6 +306,19 @@ class Registrator {
     if (_registrationTimer != null) {
       clearTimeout(_registrationTimer);
       _registrationTimer = null;
+    }
+
+    // this allows sip_ua to mark itself as unregister and have all the
+    // internal state valid so will not attmept any registration refreshes
+    // and will start back up correctly when start() is called. This is
+    // used in a mobile evnironment where we don't want to deregister from
+    // the server, inorder that it will still send push notifications for
+    // incoming calls
+    if (sendUnregister == false) {
+      var ir = IncomingResponse();
+      ir.status_code = 200;
+      _unregistered(ir);
+      return true;
     }
 
     List<dynamic> extraHeaders =
@@ -360,9 +378,14 @@ class Registrator {
     return completer.future;
   }
 
-  void close() {
+  /**
+    Use sendUnregister when you want sip_ua to shutdownn but not
+    actually send an unregister to the server. Used for mobile
+    clients when using push
+   */
+  void close({bool sendUnregister = true}) {
     if (_registered) {
-      unregister(false);
+      unregister(false, sendUnregister: sendUnregister);
     }
   }
 

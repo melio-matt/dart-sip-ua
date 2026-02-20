@@ -113,9 +113,18 @@ class SIPUAHelper extends EventManager {
 
   RegistrationState get registerState => _registerState;
 
-  void stop() async {
+  bool isStopped() {
+    return _ua == null || _ua!.stopping == true;
+  }
+
+  /**
+    Use sendUnregister when you want sip_ua to shutdownn but not
+    actually send an unregister to the server. Used for mobile
+    clients when using push
+   */
+  void stop({bool sendUnregister = true}) async {
     if (_ua != null) {
-      _ua!.stop();
+      _ua!.stop(sendUnregister: sendUnregister);
     } else {
       logger.w('ERROR: stop called but not started, call start first.');
     }

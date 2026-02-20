@@ -133,6 +133,7 @@ class UA extends EventManager {
 
   // Flag that indicates whether UA is currently stopping
   bool _stopping = false;
+  bool get stopping => _stopping;
 
   // ============
   //  High Level API
@@ -298,9 +299,11 @@ class UA extends EventManager {
 
   /**
    * Gracefully close.
-   *
+   * Use sendUnregister when you want sip_ua to shutdownn but not
+   * actually send an unregister to the server. Used for mobile
+   * clients when using push
    */
-  void stop() {
+  void stop({bool sendUnregister = true}) {
     logger.d('stop()');
 
     // Remove dynamic settings.
@@ -313,7 +316,7 @@ class UA extends EventManager {
     }
 
     // Close registrator.
-    _registrator.close();
+    _registrator.close(sendUnregister: sendUnregister);
 
     // If there are session wait a bit so CANCEL/BYE can be sent and their responses received.
     int num_sessions = _sessions.length;
@@ -333,7 +336,7 @@ class UA extends EventManager {
       }
     });
 
-    // Run _terminate on ever subscription
+    // Run _terminate on every subscription
     _subscribers.forEach((String? key, _) {
       if (_subscribers.containsKey(key)) {
         logger.d('closing subscription $key');
