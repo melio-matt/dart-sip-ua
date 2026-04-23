@@ -619,13 +619,27 @@ class Call {
   RTCSession get session => _session;
   CallStateEnum state;
   bool voiceOnly;
+  RTCSessionDescription? _answerDesc;
 
-  void answer(Map<String, dynamic> options, {MediaStream? mediaStream = null}) {
+  /**
+   * See RTCSession.answer for the description of using the [sendSipAnswer] parameter
+   * when using MacOS.
+   */
+  void answer(Map<String, dynamic> options, {MediaStream? mediaStream = null, bool sendSipAnswer = true}) {
     assert(_session != null, 'ERROR(answer): rtc session is invalid!');
     if (mediaStream != null) {
       options['mediaStream'] = mediaStream;
     }
-    _session.answer(options);
+    _session.answer(options, sendSipAnswer: sendSipAnswer).then((RTCSessionDescription? desc) => _answerDesc = desc);
+  }
+
+  /**
+   * See RTCSession.completeAnswer for the description of using this method
+   * when using MacOS.
+   */
+  void completeAnswer(Map<String, dynamic> options) {
+    assert(_session != null, 'ERROR(answer): rtc session is invalid!');
+    _session.completeAnswer(options, _answerDesc!);
   }
 
   void refer(String target) {

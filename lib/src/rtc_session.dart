@@ -454,6 +454,7 @@ class RTCSession extends EventManager implements Owner {
     }
 
     // Reply 180.
+    logger.d('VOXLOG session indicating ringing');
     request.reply(180, null, <dynamic>['Contact: $_contact']);
 
     // Fire 'progress' event.
@@ -462,10 +463,36 @@ class RTCSession extends EventManager implements Owner {
   }
 
   /**
-   * Answer the call.
+   * This is used where we wish to create the RTCPeerConnection before sending the
+   * SIP message that we have answered. The reason is that on some systems, such as
+   * the Mac, it requries time to activate items like the microphone. By creating
+   * the RTCPeerConnection, before the call is bridged, will provide the time so
+   * when answered there is no section of silence.
+   * This is used in place of answer() and along with completeAnswer()
    */
-  void answer(Map<String, dynamic> options) async {
+  void prepareToAnswer(Map<String, dynamic> options) async {
+
+  }
+
+  
+
+  /**
+   * Answer the call.
+   * This has been broken up into two methods for the purposes for dealing with a
+   * 2-3 second period of silence that occurs on MacOS where the caller can not
+   * hear the person answering. The solution is to create the RTCPeerConnection
+   * as soon as the call comes in and hold back sending the SIP OK message until
+   * the user presses the answer button. This is done by calling [answer] when
+   * the progress state is fired and setting [sendSipAnswer] to false, then when
+   * the call is answered call [completeAnswer]. This returns the RTCSessionDescription
+   * which will be required for [completeAnswer]. This technique is not compatible
+   * when you have late SDP. The delay is for the Mac to setup its echo cancellation
+   * using AVAudioSession, if CoreAudio is used the no silent period but also no echo
+   * cancellation.
+   */
+  Future<RTCSessionDescription?> answer(Map<String, dynamic> options, {bool sendSipAnswer = true}) async {
     logger.d('answer()');
+    logger.d(options);
     dynamic request = _request;
     List<dynamic> extraHeaders = utils.cloneArray(options['extraHeaders']);
     Map<String, dynamic> mediaConstraints =
@@ -474,6 +501,8 @@ class RTCSession extends EventManager implements Owner {
     MediaStream? mediaStream = options['mediaStream'] ?? null;
     // Map<String, dynamic> pcConfig =
     //     options['pcConfig'] ?? <String, dynamic>{'iceServers': <dynamic>[]};
+    logger.d('_ua.configuration.ice_servers:');
+    logger.d(_ua.configuration.ice_servers);
     Map<String, dynamic> pcConfig =
         options['pcConfig'] ?? <String, dynamic>{'iceServers':  _ua.configuration.ice_servers,
         'iceTransportPolicy': 'all'};
@@ -529,8 +558,9 @@ class RTCSession extends EventManager implements Owner {
     if (!_createDialog(request, 'UAS')) {
       request.reply(500, 'Error creating dialog');
 
-      return;
+      return null;
     }
+    logger.d('answer has called _createDialog');
 
     clearTimeout(_timers.userNoAnswerTimer);
     extraHeaders.insert(0, 'Contact: $_contact');
@@ -558,6 +588,7 @@ class RTCSession extends EventManager implements Owner {
         }
       }
     }
+    logger.d('inspected sdp peerOffersFullAudio: $peerOffersFullAudio peerOffersFullVideo: $peerOffersFullVideo');
 
     // Remove audio from mediaStream if suggested by mediaConstraints.
     if (mediaStream != null && mediaConstraints['audio'] == false) {
@@ -602,6 +633,7 @@ class RTCSession extends EventManager implements Owner {
     MediaStream? stream;
     // A local MediaStream is given, use it.
     if (mediaStream != null) {
+      logger.d('VOXLOG we are using supplied mediaStream');
       stream = mediaStream;
       emit(EventStream(
           session: this, originator: Originator.local, stream: stream));
@@ -611,6 +643,8 @@ class RTCSession extends EventManager implements Owner {
         mediaConstraints['video'] != null) {
       _localMediaStreamLocallyGenerated = true;
       try {
+        logger.d('we will request getUserMedia with the following contraints:');
+        logger.d(mediaConstraints);
         stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
         emit(EventStream(
             session: this, originator: Originator.local, stream: stream));
@@ -659,7 +693,8 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     }
 
     // Set remote description.
-    if (_late_sdp) return;
+    if (_late_sdp) return null;
+
 
     logger.d('emit "sdp"');
     final String? processedSDP = _sdpOfferToWebRTC(request.body);
@@ -708,6 +743,48 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       throw Exceptions.TypeError('_createLocalDescription() failed');
     }
 
+    if (_state == RtcSessionState.terminated) {
+      throw Exceptions.InvalidStateError('terminated');
+    }
+
+    if (sendSipAnswer == false) {
+      return desc;
+    }
+    await completeAnswer(options, desc);
+    return null;
+
+    // this section has been moved to the completeAnswer function
+    // // Send reply.
+    // try {
+    //   _handleSessionTimersInIncomingRequest(request, extraHeaders);
+    //   request.reply(200, null, extraHeaders, desc.sdp, () {
+    //     _state = RtcSessionState.waitingForAck;
+    //     _setInvite2xxTimer(request, desc.sdp);
+    //     _setACKTimer();
+    //     _accepted(Originator.local);
+    //   }, () {
+    //     _failed(Originator.system, null, null, null, 500,
+    //         DartSIP_C.CausesType.CONNECTION_ERROR, 'Transport Error');
+    //   });
+    // } catch (error, s) {
+    //   if (_state == RtcSessionState.terminated) {
+    //     return;
+    //   }
+    //   logger.e('Failed to answer(): ${error.toString()}',
+    //       error: error, stackTrace: s);
+    // }
+  }
+
+  /**
+   * This goes with [answer] method when it has been called with sendSipAnswer
+   * set to false. This wil send the final SIP answer message for the call.
+   */
+  Future<void> completeAnswer(Map<String, dynamic> options, RTCSessionDescription desc) async {
+    logger.d('completeAnswer');
+    List<dynamic> extraHeaders = utils.cloneArray(options['extraHeaders']);
+    extraHeaders.insert(0, 'Contact: $_contact');
+
+    // Create local description.
     if (_state == RtcSessionState.terminated) {
       throw Exceptions.InvalidStateError('terminated');
     }
@@ -1731,9 +1808,12 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
     // reset back to the initial value whenever we recreate the RTCPeerConnection
     _iceGatheringState = null;
     _connection = await createPeerConnection(pcConfig, rtcConstraints);
+    _connection!.onConnectionState = (RTCPeerConnectionState state) {
+      logger.d('rtcPeerConnection [${DateTime.now()}] PeerConnection State: ${state.name}');
+    };
     _connection!.onIceConnectionState = (RTCIceConnectionState state) {
       // TODO(cloudwebrtc): Do more with different states.
-      logger.d('rtcPeerConnection as seent he IceConnectionState change to: $state');
+      logger.d('rtcPeerConnection [${DateTime.now()}] has sent the IceConnectionState change to: $state');
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         terminate(<String, dynamic>{
           'cause': DartSIP_C.CausesType.RTP_TIMEOUT,
@@ -1754,6 +1834,19 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
       logger.d('Signaling state changed: $state');
     };
 
+  // the commented out code below is useful to see if rtp packets are being sent
+  //   final Stopwatch stopwatch = Stopwatch()..start();
+  //   Timer.periodic(Duration(milliseconds: 100), (Timer timer) async {
+  //   final List<StatsReport> stats = await _connection!.getStats();
+  //   for (final StatsReport report in stats) {
+  //     if (report.type == 'outbound-rtp') {
+  //       final dynamic packets = report.values['packetsSent'] ?? 0;
+  //       logger.d('[${stopwatch.elapsedMilliseconds}ms] packetsSent=$packets');
+  //       if (packets > 0 && timer.tick > 5) timer.cancel();
+  //     }
+  //   }
+  //   if (timer.tick > 40) timer.cancel();
+  // });
 
     // In future versions, unified-plan will be used by default
     String? sdpSemantics = 'unified-plan';

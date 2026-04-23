@@ -259,6 +259,11 @@ class Checks {
     },
     'ice_gathering_timeout': (Settings src, Settings? dst) {
       dst!.ice_gathering_timeout = src.ice_gathering_timeout;
+    },
+    'ice_servers': (Settings src, Settings? dst) {
+      if (src.ice_servers != null && src.ice_servers.isNotEmpty) {
+        dst!.ice_servers.addAll(src.ice_servers);
+      }
     }
   };
 }

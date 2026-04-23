@@ -661,6 +661,7 @@ class UA extends EventManager {
     // Create the server transaction.
     if (method == SipMethod.INVITE) {
       /* eslint-disable no-*/
+      logger.d('VOXLOG ua.receiveRequest processing an invite from the server');
       InviteServerTransaction(this, _socketTransport, request);
       /* eslint-enable no-*/
     } else if (method != SipMethod.ACK && method != SipMethod.CANCEL) {
@@ -730,6 +731,7 @@ class UA extends EventManager {
                 request.reply(481);
               }
             } else {
+              logger.d('VOXLOG ua.receiveRequest creating new RTCSession');
               session = RTCSession(this);
               session.init_incoming(request);
             }
@@ -1005,6 +1007,7 @@ class UA extends EventManager {
 
 // Transport data event.
   void onTransportData(SocketTransport transport, String messageData) {
+logger.d('VOXLOG: onTransportData called');
     IncomingMessage? message = Parser.parseMessage(messageData, this);
 
     if (message == null) {
@@ -1023,9 +1026,11 @@ class UA extends EventManager {
     }
 
     if (message is IncomingRequest) {
+      logger.d('VOXLOG: onTransportData established an incoming request with the method: ${message.method}');
       message.transport = transport;
       receiveRequest(message);
     } else if (message is IncomingResponse) {
+      logger.d('VOXLOG: onTransportData established an incoming response with the method: ${message.method}');
       /* Unike stated in 18.1.2, if a response does not match
     * any transaction, it is discarded here and no passed to the core
     * in order to be discarded there.
