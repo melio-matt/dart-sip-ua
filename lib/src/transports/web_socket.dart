@@ -100,7 +100,7 @@ class SIPUAWebSocket extends SIPUASocketInterface {
       };
 
       _ws!.onClose = (int? closeCode, String? closeReason) {
-        logger.d('Closed [$closeCode, $closeReason]!');
+        logger.d('Closed [$closeCode, $closeReason]! and _closed: $_closed');
         _connected = false;
         _onClose(true, closeCode, closeReason);
       };
