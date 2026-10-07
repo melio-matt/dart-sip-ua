@@ -86,9 +86,23 @@ class SIPUAWebSocket extends SIPUASocketInterface {
     }
     logger.d('connecting to WebSocket $_url');
     try {
-      _ws = SIPUAWebSocketImpl(_url!, _messageDelay);
+      // _ws = SIPUAWebSocketImpl(_url!, _messageDelay);
+      /// This is used in cases where we manually disconnect a socket and then straight away
+      /// connect again. Becuase the are some bits that are synchronous and some that are
+      /// asycnhronous callbacks can be reattached and fire when not required. This is the case
+      /// when we disconnect from out first socket, which removes the callbacks that SocketTransport 
+      /// put in then doing the connect for the second socket puts them back before socket one 
+      /// confirms it has closed. This has the result of socket one sending a second disconnect
+      /// callback using the callback that was put back when socket two was connecting. If no
+      /// connect straight away was done then there would be no callback registered so when
+      /// socket has had completed its disconnect there would have been nothing to call. What 
+      /// we are doing here is making sure that only most current websocket does the callbacks by
+      /// checking that the websocket the callback was setup on is still the current websocket.
+      final SIPUAWebSocketImpl ws = SIPUAWebSocketImpl(_url!, _messageDelay);
+      _ws = ws;
 
       _ws!.onOpen = () {
+        if (!identical(ws, _ws)) { ws.close(); return; } // superseded handshake
         _closed = false;
         _connected = true;
         logger.d('Web Socket is now connected');
@@ -96,10 +110,12 @@ class SIPUAWebSocket extends SIPUASocketInterface {
       };
 
       _ws!.onMessage = (dynamic data) {
-        _onMessage(data);
+        if (identical(ws, _ws)) _onMessage(data);
+        // _onMessage(data);
       };
 
       _ws!.onClose = (int? closeCode, String? closeReason) {
+        if (!identical(ws, _ws)) return; // late close from an old socket
         logger.d('Closed [$closeCode, $closeReason]! and _closed: $_closed');
         _connected = false;
         _onClose(true, closeCode, closeReason);
