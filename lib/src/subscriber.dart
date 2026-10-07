@@ -216,7 +216,7 @@ class Subscriber extends EventManager implements Owner {
         int maxTimeDeviation = 2000;
 
         // Expiration time is shorter and the difference is not too small.
-        if (_expires_timestamp!.difference(expiresTimestamp) >
+        if (_expires_timestamp == null || _expires_timestamp!.difference(expiresTimestamp) >
             Duration(milliseconds: maxTimeDeviation)) {
           logger.d('update sending re-SUBSCRIBE time');
           _scheduleSubscribe(expires);
@@ -348,7 +348,7 @@ class Subscriber extends EventManager implements Owner {
 logger.d("got subscribe response for $_target");
       // Create dialog
       if (_dialog == null) {
-        _id = response.call_id!;
+        // _id = response.call_id!;
         try {
           Dialog dialog = Dialog(this, response, 'UAC');
           _dialog = dialog;
@@ -370,10 +370,11 @@ logger.d("got subscribe response for $_target");
         }
       } else {
         ua.destroySubscriber(this);
-        _id = response.call_id;
-        ua.newSubscriber(sub: this);
+        // _id = response.call_id;
+        // ua.newSubscriber(sub: this);
       }
 
+      _id = response.call_id;
       ua.newSubscriber(sub: this);
 
       // Check expires value.
@@ -447,6 +448,11 @@ logger.d("got subscribe response for $_target");
     }
 
     _state = SubscriberState.notifyWait;
+
+    // Register subscription before the SUBSCRIBE response arrives,
+    // so RFC6665 early NOTIFY can be accepted.
+    _id ??= _params['call_id'];
+    ua.newSubscriber(sub: this);
 
     OutgoingRequest request = OutgoingRequest(SipMethod.SUBSCRIBE,
         ua.normalizeTarget(_target)!, ua, _params, headers, body);
