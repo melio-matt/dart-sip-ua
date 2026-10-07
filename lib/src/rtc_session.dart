@@ -919,9 +919,10 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
           };
 
           // .., or when the INVITE transaction times out
-          _request.server_transaction.on(EventStateChanged(),
-              (EventStateChanged state) {
-            if (_request.server_transaction.state ==
+          // already in a block for incoming calls only, so cast is safe
+          IncomingRequest incomingRequest = _request as IncomingRequest;
+          incomingRequest.server_transaction?.on(EventStateChanged(), (EventStateChanged event) {
+            if (incomingRequest.server_transaction!.state ==
                 TransactionState.TERMINATED) {
               sendRequest(SipMethod.BYE, <String, dynamic>{
                 'extraHeaders': extraHeaders,
@@ -929,7 +930,19 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
               });
               dialog.terminate();
             }
-          });
+          },);
+
+          // _request.server_transaction.on(EventStateChanged(),
+          //     (EventStateChanged state) {
+          //   if (_request.server_transaction.state ==
+          //       TransactionState.TERMINATED) {
+          //     sendRequest(SipMethod.BYE, <String, dynamic>{
+          //       'extraHeaders': extraHeaders,
+          //       'body': body
+          //     });
+          //     dialog.terminate();
+          //   }
+          // });
 
           _ended(
               Originator.local,
@@ -1404,8 +1417,24 @@ logger.d('we have a stream ${stream != null} and it was created locally $_localM
           _state == RtcSessionState.answered) {
         _state = RtcSessionState.canceled;
         _request.reply(487);
-        _failed(Originator.remote, null, request, null, 487,
-            DartSIP_C.CausesType.CANCELED, request.reason_phrase);
+
+      // Use the SIP Reason header (RFC 3326) if present, e.g.
+      // Reason: SIP;cause=200;text="Call completed elsewhere"
+      int statusCode = 487;
+      String? reasonPhrase = request.reason_phrase;
+      dynamic reason = request.getHeader('Reason');
+      if (reason is String && reason.trim().toUpperCase().startsWith('SIP')) {
+        RegExpMatch? cause = RegExp(r'cause=(\d+)').firstMatch(reason);
+        RegExpMatch? text = RegExp(r'text="([^"]*)"').firstMatch(reason);
+        if (cause != null) statusCode = int.parse(cause.group(1)!);
+        if (text != null) reasonPhrase = text.group(1);
+      }
+
+      _failed(Originator.remote, null, request, null, statusCode,
+          DartSIP_C.CausesType.CANCELED, reasonPhrase);
+
+        // _failed(Originator.remote, null, request, null, 487,
+        //     DartSIP_C.CausesType.CANCELED, request.reason_phrase);
       }
     } else {
       // Requests arriving here are in-dialog requests.
